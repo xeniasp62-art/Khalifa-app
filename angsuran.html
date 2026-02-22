@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Angsuran</title>
+
+<!-- jsPDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+body{font-family:Arial;margin:0;background:#f4f6f9;}
+header{
+  background:#1e90ff;
+  color:white;
+  padding:15px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.container{padding:10px;}
+.card{
+  background:white;
+  padding:10px;
+  margin-bottom:15px;
+  border-radius:10px;
+  font-size:12px;
+  box-shadow:0 3px 10px rgba(0,0,0,0);
+}
+button{padding:6px 10px;margin-top:5px;cursor:pointer;border:none;border-radius:5px;background:#1e90ff;color:white;}
+button:disabled{background:#aaa; cursor:not-allowed;}
+input,select{padding:6px;margin-bottom:8px;width:100%;}
+.total{font-weight:bold;font-size:16px;}
+.warning{color:red;font-weight:bold}
+  </style>
+</head>
+<body>
+
+<header>
+  <div>🧾 Angsuran Pinjaman</div>
+  <div>
+    <button onclick="kembali()">Kembali</button>
+    <button onclick="downloadPDF()">📄 PDF</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- FORM ANGSURAN (admin only) -->
+  <div id="formAngsuran" class="card">
+    <h3>Tambah Angsuran</h3>
+    <select id="pinjamanSelect">
+      <option>Memuat...</option>
+    </select>
+    <input type="number" id="jumlahAngsuran" placeholder="Jumlah Angsuran">
+    <input type="text" id="ketAngsuran" placeholder="Keterangan">
+    <button onclick="tambahAngsuran()">Simpan Angsuran</button>
+  </div>
+
+  <!-- Total -->
+  <div class="card total">
+    Total Pinjaman: Rp <span id="totalPinjaman">0</span><br>
+    Total Angsuran: Rp <span id="totalAngsuran">0</span>
+  </div>
+
+  <!-- Card laporan -->
+  <div id="cardsContainer" style="display:none;"></div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, push, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDd0s73-qW2uiOlBWR-afybFZzMafCHeSo",
+  authDomain: "arfa-c7dee.firebaseapp.com",
+  databaseURL: "https://arfa-c7dee-default-rtdb.firebaseio.com",
+  projectId: "arfa-c7dee",
+  storageBucket: "arfa-c7dee.firebasestorage.app",
+  messagingSenderId: "468058520812",
+  appId: "1:468058520812:web:f9cbc82fe7e88ecda9b9c9"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const pinjamanRef = ref(db,"koperasi/pinjaman");
+const angsuranRef = ref(db,"koperasi/angsuran");
+const kasRef = ref(db,"koperasi/kas");
+
+/* Proteksi login & role */
+const username = localStorage.getItem("user");
+const role = localStorage.getItem("role") || "user";
+if(!username) window.location.href="index.html";
+
+/* Hanya admin bisa tambah angsuran */
+if(role !== "admin"){
+  document.getElementById("formAngsuran").style.display = "none";
+}
+
+function formatRp(n){ return Number(n).toLocaleString("id-ID"); }
+
+// LOAD DROPDOWN PINJAMAN
+async function loadDropdown(){
+  const select = document.getElementById("pinjamanSelect");
+  select.innerHTML = "<option>Memuat...</option>";
+
+  const pinSnap = await get(pinjamanRef);
+  const angsSnap = await get(angsuranRef);
+
+  if(!pinSnap.exists()){
+    select.innerHTML = "<option>Tidak ada pinjaman</option>";
+    return;
+  }
+
+  select.innerHTML = "";
+  const pinData = pinSnap.val();
+  const angsData = angsSnap.exists()? angsSnap.val() : {};
+
+  for(const key in pinData){
+    let totalAngs = 0;
+    for(const a in angsData){
+      if(angsData[a].pinjamanId === key){
+        totalAngs += Number(angsData[a].jumlah);
+      }
+    }
+    const sisa = Number(pinData[key].jumlah) - totalAngs;
+    if(sisa > 0){
+      select.innerHTML += `<option value="${key}">${pinData[key].nama} - Sisa Rp ${formatRp(sisa)}</option>`;
+    }
+  }
+  if(select.innerHTML==="") select.innerHTML = "<option>Semua pinjaman lunas</option>";
+}
+
+// panggil load dropdown + tampilkan laporan saat halaman di load
+loadDropdown().then(()=>{
+  tampilkanLaporan();
+});
+
+/* TAMPILKAN LAPORAN */
+window.tampilkanLaporan = async function(){
+  const container = document.getElementById("cardsContainer");
+  container.style.display="block";
+  container.innerHTML="";
+
+  const pinSnap = await get(pinjamanRef);
+  const angsSnap = await get(angsuranRef);
+
+  let totalPinjaman=0;
+  let totalAngsuran=0;
+  let pdfData=[];
+
+  if(pinSnap.exists()){
+    const pinData = pinSnap.val();
+    const angsData = angsSnap.exists()? angsSnap.val() : {};
+
+    for(const key in pinData){
+      let angsTotal=0;
+      let tglTerakhir="-";
+
+      for(const a in angsData){
+        if(angsData[a].pinjamanId === key){
+          angsTotal += Number(angsData[a].jumlah);
+          tglTerakhir = angsData[a].tanggal; // tanggal terakhir
+        }
+      }
+
+      totalPinjaman += Number(pinData[key].jumlah);
+      totalAngsuran += angsTotal;
+
+      const sisa = Number(pinData[key].jumlah) - angsTotal;
+      const status = sisa <= 0 ? "Lunas" : "Belum Lunas";
+      const statusColor = sisa <= 0 ? "green" : "red";
+
+      
+         const cls = sisa<=0?"lunas":"belum";
+
+      const card = document.createElement("div");
+      card.className=`card ${cls}`;
+      card.innerHTML=`
+        <h3>${pinData[key].nama}</h3>
+         <b>Tanggal Pinjaman:</b> ${pinData[key].tanggal}</p>
+        <b>Jumlah Pinjaman:</b> Rp ${formatRp(pinData[key].jumlah)}</p>
+        <p><b>Angsuran:</b> Rp ${formatRp(angsTotal)}</p>
+        <p><b>Sisa:</b> Rp ${formatRp(sisa)}</p>
+       
+        <p><b>Status:</b> <b style="color:${statusColor}">${status}</b></p>
+           <p><b>Tanggal Terakhir Angsuran:</b> ${tglTerakhir}</p>
+        <p><b>Keterangan:</b> ${pinData[key].keterangan || '-'}</p>
+      `;
+      container.appendChild(card);
+
+      pdfData.push([
+        pinData[key].nama,
+        pinData[key].tanggal,
+        Number(pinData[key].jumlah),
+        angsTotal,
+        sisa,
+        status,
+        tglTerakhir,
+        pinData[key].keterangan || '-'
+      ]);
+    }
+  }
+
+  document.getElementById("totalPinjaman").innerText=formatRp(totalPinjaman);
+  document.getElementById("totalAngsuran").innerText=formatRp(totalAngsuran);
+  window.pdfData=pdfData;
+}
+
+/* PDF */
+window.downloadPDF = function(){
+  if(!window.pdfData || !window.pdfData.length){
+    alert("Belum ada data");
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text("Laporan Pinjaman & Angsuran",105,20,{align:"center"});
+
+  const tableColumn = ["Nama","Tgl Pinjaman","Jumlah","Angsuran","Sisa","Status","Tgl Terakhir Angsuran","Keterangan"];
+  doc.autoTable({
+    head:[tableColumn],
+    body: window.pdfData.map(r=>[
+      r[0], r[1], "Rp "+r[2].toLocaleString("id-ID"),
+      "Rp "+r[3].toLocaleString("id-ID"),
+      "Rp "+r[4].toLocaleString("id-ID"),
+      r[5], r[6], r[7]
+    ]),
+    startY:30
+  });
+
+  doc.save(`laporan_angsuran_${new Date().toLocaleDateString().replace(/\//g,"-")}.pdf`);
+}
+
+window.kembali=function(){
+  window.location.href="dashboard.html";
+}
+  /* TAMBAH ANGSURAN */
+window.tambahAngsuran = async function(){
+
+  const select = document.getElementById("pinjamanSelect");
+  const pinjamanId = select.value;
+  const jumlah = Number(document.getElementById("jumlahAngsuran").value);
+  const ket = document.getElementById("ketAngsuran").value;
+
+  if(!pinjamanId){
+    alert("Pilih pinjaman dulu");
+    return;
+  }
+
+  if(!jumlah || jumlah <= 0){
+    alert("Jumlah angsuran tidak valid");
+    return;
+  }
+
+  // Ambil data pinjaman
+  const pinSnap = await get(pinjamanRef);
+  const angsSnap = await get(angsuranRef);
+
+  if(!pinSnap.exists()){
+    alert("Data pinjaman tidak ditemukan");
+    return;
+  }
+
+  const pinData = pinSnap.val();
+  const angsData = angsSnap.exists()? angsSnap.val() : {};
+
+  const pinjaman = pinData[pinjamanId];
+  if(!pinjaman){
+    alert("Pinjaman tidak valid");
+    return;
+  }
+
+  // Hitung total angsuran lama
+  let totalAngs = 0;
+  for(const a in angsData){
+    if(angsData[a].pinjamanId === pinjamanId){
+      totalAngs += Number(angsData[a].jumlah);
+    }
+  }
+
+  const sisa = Number(pinjaman.jumlah) - totalAngs;
+
+  if(jumlah > sisa){
+    alert("Angsuran melebihi sisa pinjaman!");
+    return;
+  }
+    
+  if(jumlah>sisa){
+    document.getElementById("notif").innerHTML=
+      "<div class='warning'>Saldo tidak cukup!</div>";
+    return;
+  }
+
+  // Simpan angsuran
+  await push(angsuranRef,{
+    pinjamanId: pinjamanId,
+    nama: pinjaman.nama,
+    jumlah: jumlah,
+    tanggal: new Date().toLocaleString(),
+    keterangan: ket
+  });
+
+  // Tambahkan ke kas (masuk)
+  await push(kasRef,{
+    sumber: `Angsuran - ${pinjaman.nama}`,
+    jumlah: jumlah,
+    tanggal: new Date().toLocaleString()
+  });
+
+  alert("Angsuran berhasil disimpan!");
+
+  // Reset form
+  document.getElementById("jumlahAngsuran").value="";
+  document.getElementById("ketAngsuran").value="";
+
+  // Refresh tampilan
+  await loadDropdown();
+  await tampilkanLaporan();
+};
+</script>
+
+</body>
+</html>

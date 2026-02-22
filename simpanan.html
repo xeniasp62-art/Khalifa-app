@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simpanan Anggota</title>
+
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#f4f6f9;}
+header{
+  background:#1e90ff;
+  color:white;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 20px;
+}
+.container{padding:20px;}
+.card{
+  background:white;
+  padding:15px;
+  margin-bottom:15px;
+  border-radius:8px;
+  box-shadow:0 3px 10px rgba(0,0,0,.1);
+}
+input,select{
+  padding:8px;
+  margin-bottom:10px;
+  width:100%;
+  border-radius:6px;
+  border:1px solid #ccc;
+}
+button{
+  padding:8px 12px;
+  cursor:pointer;
+  background:#1e90ff;
+  border:none;
+  color:white;
+  border-radius:6px;
+}
+button:disabled{background:#aaa;}
+.total{
+  font-size:18px;
+  font-weight:bold;
+}
+.anggota-card{
+  border-left:5px solid #1e90ff;
+  margin-bottom:12px;
+  padding:12px;
+  border-radius:8px;
+  background:white;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+.anggota-card-row{
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:5px;
+}
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div>💳 Simpanan Anggota</div>
+  <div>
+    <button onclick="kembali()">Kembali</button>
+    <button id="btnPDF">Export PDF</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="card total">
+    Total Simpanan: Rp <span id="totalSimpanan">0</span>
+  </div>
+
+  <div class="card">
+    <h3>Tambah Simpanan</h3>
+    <select id="anggotaSelect"></select>
+
+    <select id="jenis">
+      <option value="pokok">Simpanan Pokok</option>
+      <option value="wajib">Simpanan Wajib</option>
+      <option value="sukarela">Simpanan Sukarela</option>
+    </select>
+
+    <input type="number" id="jumlah" placeholder="Jumlah Simpanan">
+    <input type="text" id="keterangan" placeholder="Keterangan">
+
+    <button id="btnSimpan">Simpan</button>
+  </div>
+
+  <div class="card">
+    <h3>Data Simpanan Anggota</h3>
+    <div id="cardContainer"></div>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, push } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* FIREBASE CONFIG */
+const firebaseConfig = {
+  apiKey: "AIzaSyDd0s73-qW2uiOlBWR-afybFZzMafCHeSo",
+  authDomain: "arfa-c7dee.firebaseapp.com",
+  databaseURL: "https://arfa-c7dee-default-rtdb.firebaseio.com",
+  projectId: "arfa-c7dee",
+  storageBucket: "arfa-c7dee.firebasestorage.app",
+  messagingSenderId: "468058520812",
+  appId: "1:468058520812:web:f9cbc82fe7e88ecda9b9c9"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+if(!localStorage.getItem("user")) window.location.href="index.html";
+
+const anggotaRef = ref(db,"koperasi/anggota");
+const simpananRef = ref(db,"koperasi/simpanan");
+const kasRef = ref(db,"koperasi/kas");
+
+/* LOAD DROPDOWN ANGGOTA */
+onValue(anggotaRef, snapshot=>{
+  const select = document.getElementById("anggotaSelect");
+  select.innerHTML = "<option value='all'>Semua Anggota</option>";
+  snapshot.forEach(child=>{
+    const opt = document.createElement("option");
+    opt.value = child.key; // gunakan key sebagai anggotaId
+    opt.textContent = child.val().nama;
+    select.appendChild(opt);
+  });
+});
+
+/* LOAD DATA SIMPANAN */
+let anggotaData = {};
+let simpananRaw = [];
+
+onValue(simpananRef, snapshot=>{
+  simpananRaw = [];
+  snapshot.forEach(child=>{
+    simpananRaw.push({id: child.key, ...child.val()});
+  });
+  renderData();
+});
+
+document.getElementById("anggotaSelect").addEventListener("change", ()=>{
+  renderData();
+});
+
+function renderData(){
+  const selectedId = document.getElementById("anggotaSelect").value;
+  const container = document.getElementById("cardContainer");
+  container.innerHTML = "";
+  let total = 0;
+  anggotaData = {};
+
+  const filtered = selectedId === "all" ? simpananRaw : simpananRaw.filter(s=>s.anggotaId===selectedId);
+
+  filtered.forEach(item=>{
+    const nama = item.nama;
+    if(!anggotaData[nama]) anggotaData[nama] = {pokok:0,wajib:0,sukarela:0};
+    anggotaData[nama][item.jenis] += Number(item.jumlah);
+  });
+
+  for(const nama in anggotaData){
+    const totalAnggota =
+      anggotaData[nama].pokok +
+      anggotaData[nama].wajib +
+      anggotaData[nama].sukarela;
+    total += totalAnggota;
+
+    const card = document.createElement("div");
+    card.className = "anggota-card";
+    card.innerHTML = `
+      <div class="anggota-card-row"><span>Nama</span><span><b>${nama}</b></span></div>
+      <div class="anggota-card-row"><span>Pokok</span><span>Rp ${anggotaData[nama].pokok.toLocaleString("id-ID")}</span></div>
+      <div class="anggota-card-row"><span>Wajib</span><span>Rp ${anggotaData[nama].wajib.toLocaleString("id-ID")}</span></div>
+      <div class="anggota-card-row"><span>Sukarela</span><span>Rp ${anggotaData[nama].sukarela.toLocaleString("id-ID")}</span></div>
+      <div class="anggota-card-row"><b>Total</b><b>Rp ${totalAnggota.toLocaleString("id-ID")}</b></div>
+    `;
+    container.appendChild(card);
+  }
+
+  document.getElementById("totalSimpanan").innerText = total.toLocaleString("id-ID");
+}
+
+/* SIMPAN SIMPANAN */
+document.getElementById("btnSimpan").addEventListener("click", async ()=>{
+  const select = document.getElementById("anggotaSelect");
+  if(!select.value) return alert("Pilih anggota dulu");
+
+  const nama = select.options[select.selectedIndex].text;
+  const jenis = document.getElementById("jenis").value;
+  const jumlah = Number(document.getElementById("jumlah").value);
+  const ket = document.getElementById("keterangan").value;
+
+  if(!jumlah || jumlah<=0)
+    return alert("Jumlah tidak valid");
+
+  await push(simpananRef,{
+    anggotaId: select.value,
+    nama,
+    jenis,
+    jumlah,
+    keterangan:ket,
+    tanggal:new Date().toLocaleString()
+  });
+
+  // Kas masuk
+  await push(kasRef,{
+    sumber:`Simpanan ${jenis} - ${nama}`,
+    jumlah:jumlah,
+    tanggal:new Date().toLocaleString()
+  });
+
+  document.getElementById("jumlah").value="";
+  document.getElementById("keterangan").value="";
+});
+
+/* EXPORT PDF */
+document.getElementById("btnPDF").addEventListener("click", ()=>{
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFontSize(16);
+  doc.text("Laporan Simpanan Anggota",105,20,{align:"center"});
+
+  const columns=["Anggota","Pokok","Wajib","Sukarela","Total"];
+  const rows=[];
+
+  for(const nama in anggotaData){
+    const total =
+      anggotaData[nama].pokok +
+      anggotaData[nama].wajib +
+      anggotaData[nama].sukarela;
+
+    rows.push([
+      nama,
+      "Rp "+anggotaData[nama].pokok.toLocaleString("id-ID"),
+      "Rp "+anggotaData[nama].wajib.toLocaleString("id-ID"),
+      "Rp "+anggotaData[nama].sukarela.toLocaleString("id-ID"),
+      "Rp "+total.toLocaleString("id-ID")
+    ]);
+  }
+
+  doc.autoTable({head:[columns],body:rows,startY:30});
+  doc.save("laporan_simpanan.pdf");
+});
+
+window.kembali = ()=>{window.location.href="dashboard.html";}
+</script>
+
+</body>
+</html>

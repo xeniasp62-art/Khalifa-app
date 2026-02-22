@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backup, Restore & Reset Data</title>
+
+<style>
+body{font-family:Arial,sans-serif;margin:0;background:#f4f6f9;}
+header{background:#1e90ff;color:white;padding:15px;display:flex;justify-content:space-between;align-items:center;}
+.container{padding:20px;}
+.card{background:white;padding:15px;margin-bottom:15px;border-radius:8px;box-shadow:0 3px 10px rgba(0,0,0,.1);}
+button{padding:8px 12px;margin:5px 0;cursor:pointer;border:none;border-radius:6px;color:white;background:#1e90ff;}
+button.danger{background:red;}
+input[type=file]{margin:10px 0;}
+h4{margin:5px 0;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>Backup, Restore & Reset Data</div>
+  <button id="btnKembali">Kembali</button>
+</header>
+
+<div class="container">
+
+  <!-- Admin Forms -->
+  <div class="card" id="adminForms">
+    <h3>Admin Panel</h3>
+
+    <!-- Backup -->
+    <h4>Backup Data</h4>
+    <button id="btnBackup">Download Backup JSON</button>
+
+    <!-- Restore -->
+    <h4>Restore Data</h4>
+    <input type="file" id="fileRestore" accept=".json">
+    <button id="btnRestore">Restore Data</button>
+
+    <!-- Reset -->
+    <h4>Reset Semua Data</h4>
+    <button id="btnReset" class="danger">Reset / Hapus Semua Data</button>
+  </div>
+
+  <!-- Log Aktivitas -->
+  <div class="card" id="logCard">
+    <h3>Log Aktivitas Terakhir</h3>
+    <div id="logContainer"></div>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, get, set, push, remove, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* ===== CONFIG FIREBASE ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyDd0s73-qW2uiOlBWR-afybFZzMafCHeSo",
+  authDomain: "arfa-c7dee.firebaseapp.com",
+  databaseURL: "https://arfa-c7dee-default-rtdb.firebaseio.com",
+  projectId: "arfa-c7dee",
+  storageBucket: "arfa-c7dee.firebasestorage.app",
+  messagingSenderId: "468058520812",
+  appId: "1:468058520812:web:f9cbc82fe7e88ecda9b9c9"
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+/* ===== PROTEKSI LOGIN & ROLE ===== */
+const username = localStorage.getItem("user");
+const role = localStorage.getItem("role") || "user";
+if(!username) window.location.href="index.html";
+
+/* Hanya admin yang lihat form admin */
+if(role !== "admin") document.getElementById("adminForms").style.display = "none";
+
+/* Tombol Kembali */
+document.getElementById("btnKembali").addEventListener("click", ()=>{
+  window.location.href="dashboard.html";
+});
+
+/* ===== LOG Aktivitas ===== */
+const logRef = ref(db,"koperasi/logs");
+function addLog(action){
+  push(logRef,{
+    user: username,
+    action: action,
+    timestamp: new Date().toLocaleString()
+  });
+}
+
+function loadLogs(){
+  const logContainer = document.getElementById("logContainer");
+  onValue(logRef, snapshot=>{
+    logContainer.innerHTML="";
+    if(snapshot.exists()){
+      const logs = snapshot.val();
+      const arr = Object.values(logs).sort((a,b)=> new Date(b.timestamp) - new Date(a.timestamp));
+      arr.slice(0,10).forEach(log=>{
+        const div = document.createElement("div");
+        div.textContent = `${log.timestamp} - ${log.user} - ${log.action}`;
+        logContainer.appendChild(div);
+      });
+    } else {
+      logContainer.innerHTML = "Belum ada log aktivitas.";
+    }
+  });
+}
+loadLogs();
+
+/* ===== BACKUP ===== */
+document.getElementById("btnBackup")?.addEventListener("click", async ()=>{
+  const koperasiRef = ref(db,"koperasi");
+  const snapshot = await get(koperasiRef);
+  if(!snapshot.exists()){ alert("Data kosong!"); return; }
+
+  const data = snapshot.val();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backup_koperasi_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  addLog("Backup Data");
+});
+
+/* ===== RESTORE ===== */
+document.getElementById("btnRestore")?.addEventListener("click", async ()=>{
+  const fileInput = document.getElementById("fileRestore");
+  if(!fileInput.files[0]) return alert("Pilih file JSON dulu!");
+
+  const file = fileInput.files[0];
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      const json = JSON.parse(e.target.result);
+      await set(ref(db,"koperasi"), json);
+      alert("Restore data berhasil!");
+      addLog("Restore Data");
+    }catch(err){
+      alert("File tidak valid!");
+      console.error(err);
+    }
+  }
+  reader.readAsText(file);
+});
+
+/* ===== RESET ===== */
+document.getElementById("btnReset")?.addEventListener("click", async ()=>{
+  if(confirm("Yakin ingin menghapus semua data koperasi? Tindakan ini tidak bisa dibatalkan!")){
+    await remove(ref(db,"koperasi"));
+    alert("Semua data berhasil dihapus!");
+    addLog("Reset Data");
+  }
+});
+</script>
+
+</body>
+</html>

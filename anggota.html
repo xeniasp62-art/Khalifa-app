@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Anggota</title>
+
+<style>
+body{font-family:Arial;margin:0;background:#f4f6f9;}
+header{
+  background:#1e90ff;
+  color:white;
+  padding:15px;
+  display:flex;
+  justify-content:space-between;
+}
+.container{padding:20px;}
+
+input{
+  padding:6px;
+  margin-bottom:8px;
+  width:100%;
+}
+button{
+  padding:6px 10px;
+  cursor:pointer;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+}
+th,td{
+  border:1px solid #ddd;
+  padding:8px;
+  text-align:left;
+}
+th{
+  background:#f1f1f1;
+}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+
+  .anggota-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.anggota-card {
+  width: 250px;
+  margin: 10px;
+  padding: 20px;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+.anggota-card h3 {
+  margin-top: 0;
+}
+
+.anggota-card p {
+  margin-bottom: 10px;
+}
+
+  </style>
+</head>
+<body>
+
+<header>
+  <div>👥 Data Anggota</div>
+  <button onclick="kembali()">Kembali</button>
+</header>
+  
+  <div class="container">
+
+  <div class="card">
+    <h3>Tambah Anggota</h3>
+    <input type="text" id="nama" placeholder="Nama Anggota">
+    <input type="text" id="alamat" placeholder="Alamat">
+    <input type="text" id="telepon" placeholder="No Telepon">
+    <button onclick="tambahAnggota()">Simpan</button>
+  </div>
+
+  <div class="card">
+    <h3>Daftar Anggota</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Nama</th>
+          <th>Alamat</th>
+          <th>Telepon</th>
+          <th>Aksi</th>
+        </tr>
+      </thead>
+      <tbody id="listAnggota"></tbody>
+    </table>
+  </div>
+
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, push, onValue, remove } 
+from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const firebaseConfig = {
+  apiKey: "AIzaSyDd0s73-qW2uiOlBWR-afybFZzMafCHeSo",
+  authDomain: "arfa-c7dee.firebaseapp.com",
+  databaseURL: "https://arfa-c7dee-default-rtdb.firebaseio.com",
+  projectId: "arfa-c7dee",
+  storageBucket: "arfa-c7dee.firebasestorage.app",
+  messagingSenderId: "468058520812",
+  appId: "1:468058520812:web:f9cbc82fe7e88ecda9b9c9"
+};
+  
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+/* Proteksi login */
+if(!localStorage.getItem("user")){
+  window.location.href = "index.html";
+}
+
+const anggotaRef = ref(db,"koperasi/anggota");
+
+/* Ambil data realtime */
+onValue(anggotaRef,(snapshot)=>{
+  const tbody = document.getElementById("listAnggota");
+  tbody.innerHTML = "";
+
+  if(snapshot.exists()){
+    const data = snapshot.val();
+
+    for(const key in data){
+      tbody.innerHTML += `
+        <tr>
+          <td>${data[key].nama}</td>
+          <td>${data[key].alamat}</td>
+          <td>${data[key].telepon}</td>
+          <td>
+            <button onclick="hapusAnggota('${key}')">Hapus</button>
+          </td>
+        </tr>
+      `;
+    }
+  }
+});
+
+/* Tambah anggota */
+window.tambahAnggota = function(){
+
+  const nama = document.getElementById("nama").value;
+  const alamat = document.getElementById("alamat").value;
+  const telepon = document.getElementById("telepon").value;
+
+  if(!nama) return alert("Nama wajib diisi");
+
+  push(anggotaRef,{
+    nama:nama,
+    alamat:alamat,
+    telepon:telepon
+  });
+
+  document.getElementById("nama").value="";
+  document.getElementById("alamat").value="";
+  document.getElementById("telepon").value="";
+}
+
+/* Hapus anggota */
+window.hapusAnggota = function(id){
+  if(confirm("Yakin hapus?")){
+    remove(ref(db,"koperasi/anggota/"+id));
+  }
+}
+
+/* Kembali */
+window.kembali = function(){
+  window.location.href="dashboard.html";
+}
+</script>
+
+</body>
+</html>
